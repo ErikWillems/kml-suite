@@ -4,7 +4,7 @@
 	<meta charset="utf-8">
 	<meta http-equiv="X-UA-Compatible" content="IE=edge">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>LocalFocus KML-suite</title>
+	<title>KML to Spreadsheet</title>
 	<link href="https://fonts.googleapis.com/css?family=Open+Sans:300,400" rel="stylesheet">
 	<style>
 		body {
@@ -22,9 +22,12 @@
 	        font-family: 'Open Sans', sans-serif;
 	    }
 
+	    .header {
+	    	text-align: center;
+	    }
+
 	    h1 {
 	    	font-size: 36px;
-	    	text-align: center;
 	    }
 
 	    h1 > img {
@@ -42,7 +45,6 @@
 		}
 
 		button {
-			margin-top: 1em;
 			padding: 0.5em;
 		}
 
@@ -54,13 +56,19 @@
 			cursor: pointer;
 		}
 
+		.box {
+			display: inline-block;
+			border: 1px solid #DDD;
+			padding: 0.4em 1em;
+		}
+
 		#output {
 			width: 100%;
 			height: 300px;
 		}
 
-		#simplify-count {
-			width: 4em;
+		#simplify-count, #decimals-count {
+			width: 5em;
 		}
 
 		#files {
@@ -89,32 +97,53 @@
 	</style>
 </head>
 <body>
-	<h1><img src="https://developers.localfocus.nl/lf.png"> LocalFocus KML-suite</h1>
+	<div class="header">
+		<h1><img src="https://developers.localfocus.nl/lf.png"> KML to Spreadsheet</h1>
+		<p>An tool to simplify KML files and splits them into spreadsheet rows</p>
+		<p><a href="https://github.com/ErikWillems/kml-suite" target="_blank">Find on GitHub</a></p>
+	</div>
 	<h3>Input</h3>
 	<p>
 		<input type="file" id="files" name="files[]" />
 		<label for="files">Choose a KML file</label>
 	</p>
 	<h3>Options</h3>
+	<div class="box">
+		<p>
+			<label>
+				<input type="checkbox" id="decimals" checked> Limit number of decimals for coordinates
+			</label>
+		</p>
+		<p>
+			<input type="number" id="decimals-count" value="4" min="0" max="10"> Max number of decimals
+		</p>
+	</div>
+	<div class="box">
+		<p>
+			<label>
+				<input type="checkbox" id="simplify"> Simplify lines (experimental!)
+			</label>
+		</p>
+		<p>
+			<input type="number" id="simplify-count" value="0.001" min="0.0001" max="0.1" step="0.0001"> Simplify distance (choose something between 0.0001 and 0.1)
+		</p>
+	</div>
+	<h3>Output</h3>
 	<p>
-		<label>
-			<input type="checkbox" id="simplify" checked> Round coordinates
-		</label>
+		<button id="do">KML to Spreadsheet</button>
 	</p>
+	<p id="stats">
 
-	<p>
-		<input type="number" id="simplify-count" value="3" min="0" max="10"> Max number of decimals
 	</p>
 	<p>
-		<button id="do">KML to csv</button>
-	</p>
-	<p>
+		<i>Copy field and paste in your spreadsheet</i>
 		<textarea id="output"></textarea>
 	</p>
 
 	<script>
 
 		var _table = (function(){
+			rawXML = '';
 			var xmlDoc = null;
 			var rows = [];
 			var header = [];
@@ -190,9 +219,13 @@
 						result += row.meta.join("\t") + "\t" + row.kml + "\n";
 					};
 					_element(query).setValue(result);
+
+					var diff = Math.round((result.length - rawXML.length) / rawXML.length * 100);
+					_element('#stats').text('Original KML length: ' + rawXML.length + ', new spreadsheet length: ' + result.length + ' ('+diff+'%)');
 				},
 				'setXML': function(str){
 					if(typeof str === 'string' && str.length){
+						rawXML = str;
 						var parser = new DOMParser();
 						xmlDoc = _element(parser.parseFromString(str, 'text/xml'));
 						return xmlDoc;
@@ -235,6 +268,9 @@
 					'getValue': function(type){
 						if(type === 'int'){
 							return parseInt(element.value, 10);
+						}
+						if(type === 'float'){
+							return parseFloat(element.value);
 						}
 						return element.value;
 					},
@@ -280,8 +316,12 @@
 						return (tag.indexOf(this.type()) !== -1);
 
 					},
-					'text': function(){
-						return element.textContent;
+					'text': function(str){
+						if(typeof str === 'string'){
+							element.textContent = str;
+						} else {
+							return element.textContent;
+						}
 					}
 				};
 			}
@@ -312,9 +352,9 @@
 					return str.replace(/[&<>"']/g, function(m) { return map[m]; });
 				},
 				'simplifyCoords': function(coords){
-					var simplify = _element('#simplify').checked();
+					var decimalsOn = _element('#decimals').checked();
 					
-					var round = _element('#simplify-count').getValue('int'),
+					var round = _element('#decimals-count').getValue('int'),
 					result = [],
 					parts = coords.split(' ');
 
@@ -328,14 +368,32 @@
 								console.error(x, y, ' is not a valid coordinate');
 								continue;
 							}
-							if(simplify){
+							if(decimalsOn){
 								x = simpleRound(x, round);
 								y = simpleRound(y, round);
 							}
-							result.push(x + ',' + y);
+							result.push({
+								'x': x,
+								'y': y
+							});
 						}
 					};
-		            return result.join(' ');
+
+					if(_element('#simplify').checked()){
+						var tolerance = _element('#simplify-count').getValue('float');
+						if(isNaN(tolerance)){
+							tolerance = 0;
+						}
+						result = simplify(result, tolerance, true);
+					}
+					
+
+					var str = [];
+					for (var i = 0; i < result.length; i++) {
+						var r = result[i];
+						str.push(r.x + ',' + r.y);
+					};
+		            return str.join(' ');
 				}
 			};
 		})();
@@ -383,6 +441,130 @@
 			
 		});
 		
+	</script>
+
+	<script>
+	/*
+	 (c) 2013, Vladimir Agafonkin
+	 Simplify.js, a high-performance JS polyline simplification library
+	 mourner.github.io/simplify-js
+	*/
+
+	(function () { 'use strict';
+
+	// to suit your point format, run search/replace for '.x' and '.y';
+	// for 3D version, see 3d branch (configurability would draw significant performance overhead)
+
+	// square distance between 2 points
+	function getSqDist(p1, p2) {
+
+	    var dx = p1.x - p2.x,
+	        dy = p1.y - p2.y;
+
+	    return dx * dx + dy * dy;
+	}
+
+	// square distance from a point to a segment
+	function getSqSegDist(p, p1, p2) {
+
+	    var x = p1.x,
+	        y = p1.y,
+	        dx = p2.x - x,
+	        dy = p2.y - y;
+
+	    if (dx !== 0 || dy !== 0) {
+
+	        var t = ((p.x - x) * dx + (p.y - y) * dy) / (dx * dx + dy * dy);
+
+	        if (t > 1) {
+	            x = p2.x;
+	            y = p2.y;
+
+	        } else if (t > 0) {
+	            x += dx * t;
+	            y += dy * t;
+	        }
+	    }
+
+	    dx = p.x - x;
+	    dy = p.y - y;
+
+	    return dx * dx + dy * dy;
+	}
+	// rest of the code doesn't care about point format
+
+	// basic distance-based simplification
+	function simplifyRadialDist(points, sqTolerance) {
+
+	    var prevPoint = points[0],
+	        newPoints = [prevPoint],
+	        point;
+
+	    for (var i = 1, len = points.length; i < len; i++) {
+	        point = points[i];
+
+	        if (getSqDist(point, prevPoint) > sqTolerance) {
+	            newPoints.push(point);
+	            prevPoint = point;
+	        }
+	    }
+
+	    if (prevPoint !== point) newPoints.push(point);
+
+	    return newPoints;
+	}
+
+	function simplifyDPStep(points, first, last, sqTolerance, simplified) {
+	    var maxSqDist = sqTolerance,
+	        index;
+
+	    for (var i = first + 1; i < last; i++) {
+	        var sqDist = getSqSegDist(points[i], points[first], points[last]);
+
+	        if (sqDist > maxSqDist) {
+	            index = i;
+	            maxSqDist = sqDist;
+	        }
+	    }
+
+	    if (maxSqDist > sqTolerance) {
+	        if (index - first > 1) simplifyDPStep(points, first, index, sqTolerance, simplified);
+	        simplified.push(points[index]);
+	        if (last - index > 1) simplifyDPStep(points, index, last, sqTolerance, simplified);
+	    }
+	}
+
+	// simplification using Ramer-Douglas-Peucker algorithm
+	function simplifyDouglasPeucker(points, sqTolerance) {
+	    var last = points.length - 1;
+
+	    var simplified = [points[0]];
+	    simplifyDPStep(points, 0, last, sqTolerance, simplified);
+	    simplified.push(points[last]);
+
+	    return simplified;
+	}
+
+	// both algorithms combined for awesome performance
+	function simplify(points, tolerance, highestQuality) {
+
+	    if (points.length <= 2) return points;
+
+	    var sqTolerance = tolerance !== undefined ? tolerance * tolerance : 1;
+
+	    points = highestQuality ? points : simplifyRadialDist(points, sqTolerance);
+	    points = simplifyDouglasPeucker(points, sqTolerance);
+
+	    return points;
+	}
+
+	// export as AMD module / Node module / browser or worker variable
+	if (typeof define === 'function' && define.amd) define(function() { return simplify; });
+	else if (typeof module !== 'undefined') module.exports = simplify;
+	else if (typeof self !== 'undefined') self.simplify = simplify;
+	else window.simplify = simplify;
+
+	})();
 	</script>
 </body>
 </html>
