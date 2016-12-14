@@ -15,6 +15,7 @@
 	        line-height: 24px;
 	        font-family: 'Open Sans', sans-serif;
 	        color:#444;
+	        padding: 2em;
 	    }
 
 	    h1,h2,h3,h4,h5,h6, .btn {
@@ -44,6 +45,11 @@
     		font-weight: inherit;
 		}
 
+		#log {
+			font-size: 0.85em;
+			color: red;
+		}
+
 		button {
 			padding: 0.5em;
 		}
@@ -57,7 +63,7 @@
 		}
 
 		.box {
-			display: inline-block;
+			margin: 1em 0em;
 			border: 1px solid #DDD;
 			padding: 0.4em 1em;
 		}
@@ -99,14 +105,18 @@
 <body>
 	<div class="header">
 		<h1><img src="https://developers.localfocus.nl/lf.png"> KML to Spreadsheet</h1>
-		<p>An tool to simplify KML files and splits them into spreadsheet rows</p>
-		<p><a href="https://github.com/ErikWillems/kml-to-spreadsheet/archive/master.zip">Download</a></p>
-		<p><a href="https://github.com/ErikWillems/kml-suite" target="_blank">Find on GitHub</a></p>
+		<p>A tool to simplify KML files and splits them into spreadsheet rows</p>
+		<p><a href="https://twitter.com/ehwillems" target="_blank">Info: @ehwillems</a> | <a href="https://github.com/ErikWillems/kml-to-spreadsheet/archive/master.zip">Download</a> | <a href="https://github.com/ErikWillems/kml-suite" target="_blank">Find on GitHub</a></p>
 	</div>
 	<h3>Input</h3>
 	<p>
 		<input type="file" id="files" name="files[]" />
 		<label for="files">Choose a KML file</label>
+	</p>
+	<p>
+		<small>
+			<a href="world_borders.kml" download>Or try a demo KML</a> (countries of the world). Source: <a href="http://thematicmapping.org/downloads/world_borders.php" target="_blank">thematicmapping.org</a>
+		</small>
 	</p>
 	<h3>Options</h3>
 	<div class="box">
@@ -121,20 +131,26 @@
 	</div>
 	<div class="box">
 		<p>
-			<label>
-				<input type="checkbox" id="simplify"> Simplify lines (experimental!)
-			</label>
-		</p>
-		<p>
-			<input type="number" id="simplify-count" value="0.001" min="0.0001" max="1" step="0.0001"> Simplify distance (choose something between 0.0001 and 0.1)
+			<input type="number" id="simplify-count" value="0" min="0" max="100" step="1"> Simplify lines. Choose value between 1 and 100
 		</p>
 	</div>
+	<div class="box">
+		<p>
+			<label>
+				<input type="checkbox" id="remove-small" checked> Remove Polygons with less than 3 coordinates from MultiGeometry
+			</label>
+		</p>
+	</div>
+
 	<h3>Output</h3>
 	<p>
 		<button id="do">KML to Spreadsheet</button>
 	</p>
 	<p id="stats">
 
+	</p>
+	<p id="log">
+		
 	</p>
 	<p>
 		<i>Copy field and paste in your spreadsheet</i>
@@ -156,6 +172,7 @@
 					rows = [];
 					header = [];
 					headerLength = null;
+					_log.reset();
 					return this;
 				},
 				'addRow': function(element){
@@ -165,10 +182,12 @@
 						// Element is MultiGeometry and should have multiple polygons
 						element.eachFind('Polygon', function(polygon){
 							var content = polygon.find('coordinates').text();
-							parts.push('<Polygon><coordinates>');
-							parts.push(_services.escape(_services.simplifyCoords(content)));
-							parts.push('</coordinates></Polygon>');
-
+							var coords = _services.simplifyCoords(content, true);
+							if(coords !== false){
+								parts.push('<Polygon><coordinates>');
+								parts.push(_services.escape(coords));
+								parts.push('</coordinates></Polygon>');
+							}
 						});
 					} else {
 						// Element is Polygon or LineString
@@ -226,6 +245,7 @@
 
 					var diff = Math.round((result.length - rawXML.length) / rawXML.length * 100);
 					_element('#stats').text('Original KML length: ' + rawXML.length + ', new spreadsheet length: ' + result.length + ' ('+diff+'%)');
+					_log.render();
 				},
 				'setXML': function(str){
 					if(typeof str === 'string' && str.length){
@@ -320,6 +340,13 @@
 						return (tag.indexOf(this.type()) !== -1);
 
 					},
+					'html': function(str){
+						if(typeof str === 'string'){
+							element.innerHTML = str;
+						} else {
+							return element.innerHTML;
+						}
+					},
 					'text': function(str){
 						if(typeof str === 'string'){
 							element.textContent = str;
@@ -332,6 +359,34 @@
 			return new model(str);
 		};
 
+		var _log = (function(){
+			var logs = [];
+			return {
+				'add': function(str, unique){
+					if(unique){
+						if(logs.indexOf(str) === -1){
+							logs.push(str);
+						}
+					} else {
+						logs.push(str);
+					}
+					console.info(str);
+				},
+				'render': function(){
+					var element = _element('#log');
+					if(logs.length){
+						element.html(logs.join('<br/>'));
+					} else {
+						this.reset();
+					}
+				},
+				'reset': function(){
+					logs = [];
+					_element('#log').html('');
+				}
+			}
+		})();
+
 		var _services = (function(){
 
 			var simpleRound = function(number, precision) {
@@ -340,6 +395,21 @@
 				var roundedTempNumber = Math.round(tempNumber);
 				return roundedTempNumber / factor;
 			};
+
+			var logslider = function(position) {
+				// position will be between 0 and 100
+				var minp = 0;
+				var maxp = 100;
+
+				// The result should be between 100 an 10000000
+				var minv = Math.log(0.0001);
+				var maxv = Math.log(1);
+
+				// calculate adjustment factor
+				var scale = (maxv-minv) / (maxp-minp);
+
+				return Math.exp(minv + scale*(position-minp));
+			}
 
 			return {
 				'escape': function(str){
@@ -355,7 +425,7 @@
 					};
 					return str.replace(/[&<>"']/g, function(m) { return map[m]; });
 				},
-				'simplifyCoords': function(coords){
+				'simplifyCoords': function(coords, removeSmall){
 					var decimalsOn = _element('#decimals').checked();
 					
 					var round = _element('#decimals-count').getValue('int'),
@@ -382,21 +452,29 @@
 							});
 						}
 					};
-
-					if(_element('#simplify').checked()){
-						var tolerance = _element('#simplify-count').getValue('float');
-						if(isNaN(tolerance)){
-							tolerance = 0;
-						}
-						result = simplify(result, tolerance, true);
-					}
 					
+					var tolerance = _element('#simplify-count').getValue('int');
+					if(tolerance && tolerance > 0 && tolerance <= 100){
+						result = simplify(result, logslider(tolerance), true);
+					}
+
+					if(removeSmall && _element('#remove-small').checked() && result.length <= 2){
+						console.info('removed small polygon')
+						return false;
+					}					
 
 					var str = [];
 					for (var i = 0; i < result.length; i++) {
 						var r = result[i];
 						str.push(r.x + ',' + r.y);
 					};
+					var r = str.join(' ');
+					if(r.length > 50000){
+						_log.add('Size warning: one or more cells contain more than 50000 characters and won\'t work in Google Spreadsheets', true);
+					}
+					if(r.length > 32767){
+						_log.add('Size warning: one or more cells contain more than 32767 characters and won\'t work in Excel', true);
+					}
 		            return str.join(' ');
 				}
 			};
