@@ -180,13 +180,14 @@
 					parts.push('<' + element.type() + '>');
 					if(element.isType('MultiGeometry')){
 						// Element is MultiGeometry and should have multiple polygons
-						element.eachFind('Polygon', function(polygon){
+						element.eachFind('Polygon,LineString', function(polygon){
 							var content = polygon.find('coordinates').text();
-							var coords = _services.simplifyCoords(content, true);
+							var turnOnRemoveSmall = (polygon.type() === 'Polygon')? true: false;
+							var coords = _services.simplifyCoords(content, turnOnRemoveSmall);
 							if(coords !== false){
-								parts.push('<Polygon><coordinates>');
+								parts.push('<'+ polygon.type() +'><coordinates>');
 								parts.push(_services.escape(coords));
-								parts.push('</coordinates></Polygon>');
+								parts.push('</coordinates></'+ polygon.type() +'>');
 							}
 						});
 					} else {
