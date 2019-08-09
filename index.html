@@ -105,7 +105,7 @@
 <body>
 	<div class="header">
 		<h1><img src="https://www.localfocus.nl/images/lf_rood.png"> KML to Spreadsheet</h1>
-		<p>A tool to simplify KML files and splits them into spreadsheet rows. Version 1.1.</p>
+		<p>A tool to simplify KML files and splits them into spreadsheet rows. Version 1.2.</p>
 		<p><a href="https://twitter.com/ehwillems" target="_blank">Info: @ehwillems</a> | <a href="https://github.com/ErikWillems/kml-to-spreadsheet/archive/master.zip">Download</a> | <a href="https://github.com/ErikWillems/kml-suite" target="_blank">Find on GitHub</a></p>
 	</div>
 	<h3>Input</h3>
@@ -143,8 +143,15 @@
 	</div>
 
 	<h3>Output</h3>
+	<div class="box">
+		<p>
+			<label>
+				<input type="checkbox" id="geojson"> Convert KML to GeoJSON
+			</label>
+		</p>
+	</div>
 	<p>
-		<button id="do">KML to Spreadsheet</button>
+		<button id="do">Parse KML to Spreadsheet</button>
 	</p>
 	<p id="stats">
 
@@ -175,7 +182,56 @@
 					_log.reset();
 					return this;
 				},
-				'addRow': function(element){
+				'addRowGEOJSON': function(element){
+
+					var parseCoords = function(str){
+						var coords = str.split(' ');
+						var result = [];
+						coords.forEach(function(coord){
+							result.push([
+								parseFloat(coord.split(',')[0]),
+								parseFloat(coord.split(',')[1])
+							]);
+
+						});
+						return result;
+					};
+
+					var parts = {};
+					if(element.isType('MultiGeometry')){
+						// Element is MultiGeometry and should have multiple polygons
+						parts.type = 'MultiPolygon';
+						parts.coordinates = [[]];
+						element.eachFind('Polygon', function(polygon){
+							var content = polygon.find('coordinates').text();
+							var turnOnRemoveSmall = (polygon.type() === 'Polygon')? true: false;
+							var coords = _services.simplifyCoords(content, turnOnRemoveSmall);
+							if(coords !== false){
+								parts.coordinates[0].push(parseCoords(coords));
+							}
+						});
+					} else {
+						// Element is Polygon or LineString
+						parts.type = 'Polygon';
+						var content = element.find('coordinates').text();
+						var coords = _services.simplifyCoords(content);
+						parts.coordinates = [];
+						parts.coordinates.push(parseCoords(coords));
+					}
+
+					var meta = [];
+					element.parent().eachFind('name, SimpleData, Data', function(child){
+						if(!child.hasChildren()){
+							meta.push(child.text());
+						}
+					});
+
+					rows.push({
+						'kml': '"' + JSON.stringify(parts).split('"').join('\\"') + '"', // Escape the quotes for the tsv
+						'meta': meta
+					});
+				},
+				'addRowKML': function(element){
 					var parts = [];
 					parts.push('<' + element.type() + '>');
 					if(element.isType('MultiGeometry')){
@@ -231,7 +287,7 @@
 					});
 					headerLength = meta.length;
 					rows.push({
-						'kml': 'KML',
+						'kml': 'GEO',
 						'meta': meta
 					});
 				},
@@ -492,7 +548,11 @@
 								_table.addHeader(child);
 								headerSet = true;
 							}
-							_table.addRow(child);
+							if(_element('#geojson').checked()){
+								_table.addRowGEOJSON(child);
+							} else {
+								_table.addRowKML(child);
+							}
 						}
 					});
 				});
