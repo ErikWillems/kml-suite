@@ -227,7 +227,7 @@
 					});
 
 					rows.push({
-						'kml': '"' + JSON.stringify(parts).split('"').join('\\"') + '"', // Escape the quotes for the tsv
+						'kml': JSON.stringify(parts),
 						'meta': meta
 					});
 				},
