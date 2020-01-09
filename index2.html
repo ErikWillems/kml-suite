@@ -141,15 +141,7 @@
 			</label>
 		</p>
 	</div>
-
-	<h3>Output</h3>
-	<div class="box">
-		<p>
-			<label>
-				<input type="checkbox" id="geojson"> Convert KML to GeoJSON
-			</label>
-		</p>
-	</div>
+	<br/>
 	<p>
 		<button id="do">Parse KML to Spreadsheet</button>
 	</p>
@@ -164,6 +156,7 @@
 		<textarea id="output"></textarea>
 	</p>
 	<script src="https://mourner.github.io/simplify-js/simplify.js"></script>
+	<script src="https://mapbox.github.io/togeojson/togeojson.js"></script>
 	<script src="https://code.jquery.com/jquery-3.4.1.min.js" integrity="sha256-CSXorXvZcTkaix6Yvo6HppcZGetbYMGWSFlBw8HfCJo=" crossorigin="anonymous"></script>
 	<script>
 		var globals = {
@@ -224,7 +217,14 @@
 		var xyToArray = function(input, precision){
 			var result = [];
 			input.forEach(function(part){
-				result.push([simpleRound(part.x, precision), simpleRound(part.y, precision)]);
+				if(typeof precision === 'number'){
+					result.push([simpleRound(part.x, precision), simpleRound(part.y, precision)]);
+				} else {
+					// Precision is not set or not a number
+					// Don't round the coordinates
+					result.push([part.x, part.y]);
+				}
+				
 			});
 			return result;
 		};
@@ -234,12 +234,41 @@
 			try {
 				geoJSON = JSON.parse(globals.fileInput);
 			} catch(err){
-				
+				console.log('Fall back to KML parser');
+				var kml = new DOMParser().parseFromString(globals.fileInput, 'application/xml');
+				geoJSON = toGeoJSON.kml(kml);
 			}
+			console.log(geoJSON);
 			// Loop over geoJSON features
+			var decimalsCount = false;
+			if($('#decimals').prop('checked')){
+				decimalsCount = parseInt($('#decimals-count').val(), 10);
+			}
+			
+			var simplifyCount = logslider( parseInt($('#simplify-count').val(), 10) );
+			
+			// Remove empty
+			var removeSmallShapes = false;
+			if($('#remove-small').prop('checked')){
+				removeSmallShapes = true;
+			}
+			
+			var simplifyShape = function(shape){
+				var xyShape = arrayToXY(shape);
+				var simpleShape = simplify(xyShape, simplifyCount, true);
+				// Set shape in geoJSON
+				var newArray = xyToArray(simpleShape, decimalsCount);
+				// Check if this array has three or more coordinates
+				if(removeSmallShapes === false || newArray.length > 2){
+					return shape;
+				} else {
+					// Remove shape by replacing it with an empty array
+					return [];
+				}
+			};
 			
 			geoJSON.features.forEach(function(feature){
-				// Loop over items that can be simplified
+				// Loop over features that can be simplified
 				var geometry = feature.geometry;
 				var type = feature.geometry.type;
 				var coordinates = geometry.coordinates;
@@ -248,22 +277,43 @@
 					coordinates.forEach(function(coordinate){
 						// Loop over shapes within coordinate
 						coordinate.forEach(function(shape, key){
-							var xyShape = arrayToXY(shape);
-							var simpleShape = simplify(xyShape, 100, true);
-							// Set shape in geoJSON
-							var newArray = xyToArray(simpleShape, 1);
-							// Check if this array has three or more coordinates
-							if(newArray.length > 2){
-								coordinate[key] = newArray;
-							} else {
-								// Remove shape by replacing it with an empty array
-								coordinate[key] = [];
-							}
+							coordinate[key] = simplifyShape(shape);
 						});
 					});
 				}
+				
+				if(type === 'GeometryCollection'){
+					feature.geometry.geometries.forEach(function(geometry){
+						var type = geometry.type;
+						var coordinates = geometry.coordinates;
+						// Loop over coordinates
+						coordinates.forEach(function(shape, key){
+							coordinates[key] = simplifyShape(shape);
+						});
+					});
+				}
+				
+				
 			});
-			console.log(geoJSON);
+			createSpreadsheet(geoJSON);
+		};
+		
+		var createSpreadsheet = function(geoJSON){
+			// Clean text input
+			$('#output').val('');
+			var rows = [];
+			// Loop over features
+			geoJSON.features.forEach(function(feature){
+				var row = [];
+				for(var key in feature.properties){
+					if(feature.properties.hasOwnProperty(key)){
+						row.push(feature.properties[key]);
+					}
+				}
+				row.push(JSON.stringify(feature.geometry));
+				rows.push(row.join('\t'));
+			});
+			$('#output').val(rows.join('\n'));
 		};
 	</script>
 
