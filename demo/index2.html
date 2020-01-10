@@ -105,8 +105,8 @@
 <body>
 	<div class="header">
 		<h1><img src="https://www.localfocus.nl/images/lf_rood.png"> KML to Spreadsheet</h1>
-		<p>A tool to simplify KML files and splits them into spreadsheet rows. Version 1.2.</p>
-		<p><a href="https://twitter.com/ehwillems" target="_blank">Info: @ehwillems</a> | <a href="https://github.com/ErikWillems/kml-to-spreadsheet/archive/master.zip">Download</a> | <a href="https://github.com/ErikWillems/kml-suite" target="_blank">Find on GitHub</a></p>
+		<p>A tool to simplify KML files and splits them into spreadsheet rows. Version 2.0.</p>
+		<p><a href="https://twitter.com/ehwillems" target="_blank">Info: @ehwillems</a> | <a href="https://github.com/ErikWillems/kml-suite" target="_blank">Find on GitHub</a></p>
 	</div>
 	<h3>Input</h3>
 	<p>
@@ -236,9 +236,9 @@
 			} catch(err){
 				console.log('Fall back to KML parser');
 				var kml = new DOMParser().parseFromString(globals.fileInput, 'application/xml');
+				console.log(toGeoJSON.kml(kml));
 				geoJSON = toGeoJSON.kml(kml);
 			}
-			console.log(geoJSON);
 			// Loop over geoJSON features
 			var decimalsCount = false;
 			if($('#decimals').prop('checked')){
@@ -253,63 +253,99 @@
 				removeSmallShapes = true;
 			}
 			
-			var simplifyShape = function(shape){
+			var simplifyShape = function(shape, shapeType){
 				var xyShape = arrayToXY(shape);
 				var simpleShape = simplify(xyShape, simplifyCount, true);
 				// Set shape in geoJSON
 				var newArray = xyToArray(simpleShape, decimalsCount);
 				// Check if this array has three or more coordinates
-				if(removeSmallShapes === false || newArray.length > 2){
-					return shape;
+				return newArray;
+				if(removeSmallShapes === false || shapeType === 'LineString' || newArray.length > 2){
+					return newArray;
 				} else {
 					// Remove shape by replacing it with an empty array
 					return [];
 				}
 			};
 			
+			var simplifyGeometry = {
+				'Polygon': function(geometry){
+					// Each Polygon is an array.
+					// The first element of the array is the shape.
+					// The rest are holes. All elements need to be
+					// simplified
+					geometry.coordinates.forEach(function(line, index){
+						// Line is an array of arrays with x and 
+						// y coordinages
+						geometry.coordinates[index] = simplifyShape(line);
+					});
+				},
+				'GeometryCollection': function(collection){
+					// Loop over GeometryCollection geometries
+					collection.geometries.forEach(function(geometry){
+						var type = geometry.type;
+						simplifyGeometry[type](geometry);
+					});
+				},
+				'Point': function(){
+					// Ignore points
+				},
+				'LineString': function(geometry){
+					// Each LineString is an array.
+					geometry.coordinates = simplifyShape(geometry.coordinates, 'LineString');
+				}
+			};
+			
+			var propertyList = [];
+			var ignoreProperties = ['stroke', 'stroke-opacity', 'fill-opacity', 'stroke-width'];
 			geoJSON.features.forEach(function(feature){
 				// Loop over features that can be simplified
-				var geometry = feature.geometry;
 				var type = feature.geometry.type;
-				var coordinates = geometry.coordinates;
-				if(type === 'MultiPolygon'){
-					// Loop over coordinates
-					coordinates.forEach(function(coordinate){
-						// Loop over shapes within coordinate
-						coordinate.forEach(function(shape, key){
-							coordinate[key] = simplifyShape(shape);
-						});
+				simplifyGeometry[type](feature.geometry);
+				// Update the propertyList
+				if(feature.properties && typeof feature.properties === 'object'){
+					Object.keys(feature.properties).forEach(function(property){
+						if(propertyList.indexOf(property) === -1 && ignoreProperties.indexOf(property) === -1){
+							// Add property to propertyList
+							propertyList.push(property);
+						}
 					});
 				}
-				
-				if(type === 'GeometryCollection'){
-					feature.geometry.geometries.forEach(function(geometry){
-						var type = geometry.type;
-						var coordinates = geometry.coordinates;
-						// Loop over coordinates
-						coordinates.forEach(function(shape, key){
-							coordinates[key] = simplifyShape(shape);
-						});
-					});
-				}
-				
-				
 			});
-			createSpreadsheet(geoJSON);
+			
+			console.log(propertyList);
+			
+			console.log(geoJSON);
+			createSpreadsheet(geoJSON, propertyList);
 		};
 		
-		var createSpreadsheet = function(geoJSON){
+		var createSpreadsheet = function(geoJSON, propertyList){
 			// Clean text input
 			$('#output').val('');
 			var rows = [];
+			// Add header row
+			var headerRow = [];
+			propertyList.forEach(function(property){
+				headerRow.push(property);
+			});
+			headerRow.push('geo');
+			rows.push(headerRow.join('\t'));
 			// Loop over features
 			geoJSON.features.forEach(function(feature){
 				var row = [];
-				for(var key in feature.properties){
-					if(feature.properties.hasOwnProperty(key)){
-						row.push(feature.properties[key]);
+				// Loop over propertyList to add properties
+				propertyList.forEach(function(property){
+					if(feature.properties.hasOwnProperty(property)){
+						var value = feature.properties[property];
+						if(typeof value === 'string' || typeof value === 'number'){
+							row.push(value);
+						} else {
+							row.push('');
+						}
+					} else {
+						row.push('');
 					}
-				}
+				});
 				row.push(JSON.stringify(feature.geometry));
 				rows.push(row.join('\t'));
 			});
