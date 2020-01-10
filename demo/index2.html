@@ -254,6 +254,7 @@
 			if($('#remove-small').prop('checked')){
 				removeSmallShapes = true;
 			}
+			console.log('removeSmallShapes', removeSmallShapes)
 			
 			var simplifyShape = function(shape, shapeType){
 				var xyShape = arrayToXY(shape);
@@ -261,11 +262,11 @@
 				// Set shape in geoJSON
 				var newArray = xyToArray(simpleShape, decimalsCount);
 				// Check if this array has three or more coordinates
-				return newArray;
 				if(removeSmallShapes === false || shapeType === 'LineString' || newArray.length > 2){
 					return newArray;
 				} else {
 					// Remove shape by replacing it with an empty array
+					console.log('REMOVE');
 					return [];
 				}
 			};
