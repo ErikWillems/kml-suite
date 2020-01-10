@@ -148,9 +148,10 @@
 	<p id="stats">
 
 	</p>
-	<p id="log">
-		
-	</p>
+	<div id="log">
+		<p style="display: none" class="google">Size warning: one or more cells contain more than 50000 characters and won't work in Google Spreadsheets</p>
+		<p style="display: none" class="excel">Size warning: one or more cells contain more than 32767 characters and won't work in Excel</p>
+	</div>
 	<p>
 		<i>Copy field and paste in your spreadsheet</i>
 		<textarea id="output"></textarea>
@@ -173,11 +174,16 @@
 						$('#files').parent().children('label').text(theFile.name);
 						return function(e) {
 							globals.fileInput = e.target.result;
-							render();
 						};
 					}
 				})(files[0]);
 				reader.readAsText(files[0]);
+			}
+		});
+		
+		$('#do').on('click', function(){
+			if(globals.fileInput.length){
+				render();
 			}
 		});
 		
@@ -234,6 +240,7 @@
 			var kml = new DOMParser().parseFromString(globals.fileInput, 'application/xml');
 			console.log(toGeoJSON.kml(kml));
 			geoJSON = toGeoJSON.kml(kml);
+			
 			// Loop over geoJSON features
 			var decimalsCount = false;
 			if($('#decimals').prop('checked')){
@@ -311,10 +318,13 @@
 			console.log(propertyList);
 			
 			console.log(geoJSON);
+			
 			createSpreadsheet(geoJSON, propertyList);
 		};
 		
 		var createSpreadsheet = function(geoJSON, propertyList){
+			// Reset errors
+			$('#log').children().hide();
 			// Clean text input
 			$('#output').val('');
 			var rows = [];
@@ -341,10 +351,26 @@
 						row.push('');
 					}
 				});
-				row.push(JSON.stringify(feature.geometry));
+				var geometry = JSON.stringify(feature.geometry);
+				if(geometry.length > 50000){
+					$('.google').show();
+				}
+				if(geometry.length > 32767){
+					$('.excel').show();
+				}
+				row.push(geometry);
 				rows.push(row.join('\t'));
 			});
-			$('#output').val(rows.join('\n'));
+			var resultingSpreadsheet = rows.join('\n');
+			$('#output').val(resultingSpreadsheet);
+			
+			var newSize = resultingSpreadsheet.length;
+			var oldSize = globals.fileInput.length;
+			var diff = Math.round((newSize - oldSize) / oldSize * 100);
+			$('#stats').text('Original KML length: ' + oldSize + ', new spreadsheet length: ' + newSize + ' ('+diff+'%)');
+					
+			
+			
 		};
 	</script>
 
