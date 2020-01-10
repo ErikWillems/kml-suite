@@ -231,14 +231,9 @@
 		
 		var render = function(){
 			var geoJSON;
-			try {
-				geoJSON = JSON.parse(globals.fileInput);
-			} catch(err){
-				console.log('Fall back to KML parser');
-				var kml = new DOMParser().parseFromString(globals.fileInput, 'application/xml');
-				console.log(toGeoJSON.kml(kml));
-				geoJSON = toGeoJSON.kml(kml);
-			}
+			var kml = new DOMParser().parseFromString(globals.fileInput, 'application/xml');
+			console.log(toGeoJSON.kml(kml));
+			geoJSON = toGeoJSON.kml(kml);
 			// Loop over geoJSON features
 			var decimalsCount = false;
 			if($('#decimals').prop('checked')){
