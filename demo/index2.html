@@ -137,7 +137,7 @@
 	<div class="box">
 		<p>
 			<label>
-				<input type="checkbox" id="remove-small" checked> Remove Polygons with less than 3 coordinates from MultiGeometry
+				<input type="checkbox" id="remove-small" checked> Remove Polygons with less than 3 coordinates
 			</label>
 		</p>
 	</div>
@@ -209,13 +209,22 @@
 			return Math.exp(minv + scale*(position-minp));
 		};
 		
-		var arrayToXY = function(input){
+		var arrayToXY = function(input, precision){
 			var result = [];
 			input.forEach(function(part){
-				result.push({
-					'x': part[0],
-					'y': part[1]
-				});
+				if(typeof precision === 'number'){
+					result.push({
+						'x': simpleRound(part[0], precision),
+						'y': simpleRound(part[1], precision)
+					});
+				} else {
+					// Precision is not set or not a number
+					// Don't round the coordinates
+					result.push({
+						'x': part[0],
+						'y': part[1]
+					});
+				}
 			});
 			return result;
 		};
@@ -223,13 +232,7 @@
 		var xyToArray = function(input, precision){
 			var result = [];
 			input.forEach(function(part){
-				if(typeof precision === 'number'){
-					result.push([simpleRound(part.x, precision), simpleRound(part.y, precision)]);
-				} else {
-					// Precision is not set or not a number
-					// Don't round the coordinates
-					result.push([part.x, part.y]);
-				}
+				result.push([part.x, part.y]);
 				
 			});
 			return result;
@@ -257,18 +260,11 @@
 			console.log('removeSmallShapes', removeSmallShapes)
 			
 			var simplifyShape = function(shape, shapeType){
-				var xyShape = arrayToXY(shape);
+				var xyShape = arrayToXY(shape, decimalsCount);
 				var simpleShape = simplify(xyShape, simplifyCount, true);
 				// Set shape in geoJSON
 				var newArray = xyToArray(simpleShape, decimalsCount);
-				// Check if this array has three or more coordinates
-				if(removeSmallShapes === false || shapeType === 'LineString' || newArray.length > 2){
-					return newArray;
-				} else {
-					// Remove shape by replacing it with an empty array
-					console.log('REMOVE');
-					return [];
-				}
+				return newArray;
 			};
 			
 			var simplifyGeometry = {
@@ -299,6 +295,61 @@
 				}
 			};
 			
+			var CleanupGeometry = {
+				'Polygon': function(geometry){
+					// Each Polygon is an array.
+					// The first element of the array is the shape.
+					// The rest are holes. All elements need to be
+					// simplified
+					geometry.coordinates.forEach(function(line, index){
+						if(line.length === 1 || line.length === 2){
+							// This line can be removed
+							//console.log('REMOVE POLYGON')
+							geometry.coordinates[index] = [];
+						}
+					});
+					// Remove empty holes
+					geometry.coordinates = geometry.coordinates.filter(function(coordinates, index){
+						if(index === 0){
+							// This is the basic shape, don't delete
+							return true;
+						}
+						// This is a hole
+						if(coordinates.length <= 2){
+							// This hole has 2 coordinates or less
+							console.log('FILTER HOLE')
+							return false;
+						}
+						return true;
+					});
+				},
+				'GeometryCollection': function(collection){
+					// Loop over GeometryCollection geometries
+					collection.geometries.forEach(function(geometry){
+						var type = geometry.type;
+						CleanupGeometry[type](geometry);
+					});
+					// Filter collection.geometries on empty polygons
+					collection.geometries = collection.geometries.filter(function(geometry){
+						if(geometry.type === 'Polygon'){
+							// Check if polygon has geometry
+							if(!geometry.coordinates || !geometry.coordinates.length || geometry.coordinates[0].length <= 2){
+								// Polygon has a shape with less than 2 points
+								return false;
+							}
+						} 
+						// Keep the rest
+						return true;
+					});
+				},
+				'Point': function(){
+					// Ignore points
+				},
+				'LineString': function(geometry){
+					// Ingore lines
+				}
+			};
+			
 			var propertyList = [];
 			var ignoreProperties = ['stroke', 'stroke-opacity', 'fill-opacity', 'stroke-width'];
 			geoJSON.features.forEach(function(feature){
@@ -314,6 +365,8 @@
 						}
 					});
 				}
+				
+				CleanupGeometry[type](feature.geometry);
 			});
 			
 			console.log(propertyList);
