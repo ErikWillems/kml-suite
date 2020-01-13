@@ -241,7 +241,6 @@
 		var render = function(){
 			var geoJSON;
 			var kml = new DOMParser().parseFromString(globals.fileInput, 'application/xml');
-			console.log(toGeoJSON.kml(kml));
 			geoJSON = toGeoJSON.kml(kml);
 			
 			// Loop over geoJSON features
@@ -257,7 +256,6 @@
 			if($('#remove-small').prop('checked')){
 				removeSmallShapes = true;
 			}
-			console.log('removeSmallShapes', removeSmallShapes)
 			
 			var simplifyShape = function(shape, shapeType){
 				var xyShape = arrayToXY(shape, decimalsCount);
@@ -304,7 +302,6 @@
 					geometry.coordinates.forEach(function(line, index){
 						if(line.length === 1 || line.length === 2){
 							// This line can be removed
-							//console.log('REMOVE POLYGON')
 							geometry.coordinates[index] = [];
 						}
 					});
@@ -317,7 +314,6 @@
 						// This is a hole
 						if(coordinates.length <= 2){
 							// This hole has 2 coordinates or less
-							console.log('FILTER HOLE')
 							return false;
 						}
 						return true;
@@ -350,6 +346,43 @@
 				}
 			};
 			
+			var ConvertGeometry = {
+				'Polygon': function(geometry){
+					// Do nothing
+				},
+				'GeometryCollection': function(collection){
+					// Loop over GeometryCollection geometries
+					var allPolygons = true;
+					collection.geometries.forEach(function(geometry){
+						if(geometry.type !== 'Polygon'){
+							allPolygons = false;
+						}
+					});
+					if(allPolygons){
+						// This collection can be rewriten to the shorten
+						// MultipPolygon
+						var multiPolygon = {
+							'type': 'MultiPolygon',
+							'coordinates': []
+						};
+						
+						collection.geometries.forEach(function(geometry){
+							multiPolygon.coordinates.push(geometry.coordinates);
+						});
+						
+						delete collection.geometries;
+						collection.type = 'MultiPolygon';
+						collection.coordinates = multiPolygon.coordinates;
+					}
+				},
+				'Point': function(){
+					// Do nothing
+				},
+				'LineString': function(){
+					// Do nothing
+				}
+			};
+			
 			var propertyList = [];
 			var ignoreProperties = ['stroke', 'stroke-opacity', 'fill-opacity', 'stroke-width'];
 			geoJSON.features.forEach(function(feature){
@@ -365,13 +398,12 @@
 						}
 					});
 				}
+				if(removeSmallShapes){
+					CleanupGeometry[type](feature.geometry);
+				}
 				
-				CleanupGeometry[type](feature.geometry);
+				ConvertGeometry[type](feature.geometry);
 			});
-			
-			console.log(propertyList);
-			
-			console.log(geoJSON);
 			
 			createSpreadsheet(geoJSON, propertyList);
 		};
