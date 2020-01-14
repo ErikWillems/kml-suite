@@ -4,7 +4,7 @@
 	<meta charset="utf-8">
 	<meta http-equiv="X-UA-Compatible" content="IE=edge">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>KML to Spreadsheet</title>
+	<title>KML to Spreadsheet v2</title>
 	<link href="https://fonts.googleapis.com/css?family=Open+Sans:300,400" rel="stylesheet">
 	<style>
 		body {
@@ -105,8 +105,8 @@
 <body>
 	<div class="header">
 		<h1><img src="https://www.localfocus.nl/images/lf_rood.png"> KML to Spreadsheet</h1>
-		<p>A tool to simplify KML files and splits them into spreadsheet rows. Version 1.2.</p>
-		<p><a href="https://twitter.com/ehwillems" target="_blank">Info: @ehwillems</a> | <a href="https://github.com/ErikWillems/kml-to-spreadsheet/archive/master.zip">Download</a> | <a href="https://github.com/ErikWillems/kml-suite" target="_blank">Find on GitHub</a></p>
+		<p>A tool to simplify KML files and splits them into spreadsheet rows. Version 2.0.</p>
+		<p><a href="https://twitter.com/ehwillems" target="_blank">Info: @ehwillems</a> | <a href="https://github.com/ErikWillems/kml-suite" target="_blank">Find on GitHub</a></p>
 	</div>
 	<h3>Input</h3>
 	<p>
@@ -137,577 +137,329 @@
 	<div class="box">
 		<p>
 			<label>
-				<input type="checkbox" id="remove-small" checked> Remove Polygons with less than 3 coordinates from MultiGeometry
+				<input type="checkbox" id="remove-small" checked> Remove Polygons with less than 3 coordinates
 			</label>
 		</p>
 	</div>
-
-	<h3>Output</h3>
-	<div class="box">
-		<p>
-			<label>
-				<input type="checkbox" id="geojson"> Convert KML to GeoJSON
-			</label>
-		</p>
-	</div>
+	<br/>
 	<p>
 		<button id="do">Parse KML to Spreadsheet</button>
 	</p>
 	<p id="stats">
 
 	</p>
-	<p id="log">
-		
-	</p>
+	<div id="log">
+		<p style="display: none" class="google">Size warning: one or more cells contain more than 50000 characters and won't work in Google Spreadsheets</p>
+		<p style="display: none" class="excel">Size warning: one or more cells contain more than 32767 characters and won't work in Excel</p>
+	</div>
 	<p>
 		<i>Copy field and paste in your spreadsheet</i>
 		<textarea id="output"></textarea>
 	</p>
-
+	<script src="libs/simplify.js"></script>
+	<script src="libs/togeojson.js"></script>
+	<script src="https://code.jquery.com/jquery-3.4.1.min.js" integrity="sha256-CSXorXvZcTkaix6Yvo6HppcZGetbYMGWSFlBw8HfCJo=" crossorigin="anonymous"></script>
 	<script>
-
-		var _table = (function(){
-			rawXML = '';
-			var headerLength = null;
-			var xmlDoc = null;
-			var rows = [];
-			var header = [];
-
-			return {
-				'reset': function(){
-					xmlDoc = null;
-					rows = [];
-					header = [];
-					headerLength = null;
-					_log.reset();
-					return this;
-				},
-				'addRowGEOJSON': function(element){
-
-					var parseCoords = function(str){
-						var coords = str.split(' ');
-						var result = [];
-						coords.forEach(function(coord){
-							result.push([
-								parseFloat(coord.split(',')[0]),
-								parseFloat(coord.split(',')[1])
-							]);
-
-						});
-						return result;
-					};
-
-					var parts = {};
-					if(element.isType('MultiGeometry')){
-						// Element is MultiGeometry and should have multiple polygons
-						parts.type = 'MultiPolygon';
-						parts.coordinates = [[]];
-						element.eachFind('Polygon', function(polygon){
-							var content = polygon.find('coordinates').text();
-							var turnOnRemoveSmall = (polygon.type() === 'Polygon')? true: false;
-							var coords = _services.simplifyCoords(content, turnOnRemoveSmall);
-							if(coords !== false){
-								parts.coordinates[0].push(parseCoords(coords));
-							}
-						});
-					} else {
-						// Element is Polygon or LineString
-						parts.type = 'Polygon';
-						var content = element.find('coordinates').text();
-						var coords = _services.simplifyCoords(content);
-						parts.coordinates = [];
-						parts.coordinates.push(parseCoords(coords));
-					}
-
-					var meta = [];
-					element.parent().eachFind('name, SimpleData, Data', function(child){
-						if(!child.hasChildren()){
-							meta.push(child.text());
-						}
-					});
-
-					rows.push({
-						'kml': JSON.stringify(parts),
-						'meta': meta
-					});
-				},
-				'addRowKML': function(element){
-					var parts = [];
-					parts.push('<' + element.type() + '>');
-					if(element.isType('MultiGeometry')){
-						// Element is MultiGeometry and should have multiple polygons
-						element.eachFind('Polygon,LineString', function(polygon){
-							var content = polygon.find('coordinates').text();
-							var turnOnRemoveSmall = (polygon.type() === 'Polygon')? true: false;
-							var coords = _services.simplifyCoords(content, turnOnRemoveSmall);
-							if(coords !== false){
-								parts.push('<'+ polygon.type() +'><coordinates>');
-								parts.push(_services.escape(coords));
-								parts.push('</coordinates></'+ polygon.type() +'>');
-							}
-						});
-					} else {
-						// Element is Polygon or LineString
-						var content = element.find('coordinates').text();
-						parts.push('<coordinates>');
-						parts.push(_services.escape(_services.simplifyCoords(content)));
-						parts.push('</coordinates>');
-					}
-					parts.push('</' + element.type() + '>');
-
-					var meta = [];
-					element.parent().eachFind('name, SimpleData, Data', function(child){
-						if(!child.hasChildren()){
-							meta.push(child.text());
-						}
-					});
-					
-					rows.push({
-						'kml': parts.join(''),
-						'meta': meta
-					});
-				},
-				'addHeader': function(element){
-
-					var meta = [];
-					element.parent().eachFind('name, SimpleData, Data', function(child){
-						if(!child.hasChildren()){
-							if(child.isType('name')){
-								meta.push('Name');
-							} else {
-								var attr = child.attr('name');
-
-								if(attr){
-									meta.push(attr);
-								} else {
-									meta.push('Column name?');
-								}
-							}
-						}
-					});
-					headerLength = meta.length;
-					rows.push({
-						'kml': 'GEO',
-						'meta': meta
-					});
-				},
-				'output': function(query){
-					var result = '';
-					for (var i = 0; i < rows.length; i++) {
-						var row = rows[i];
-						row.meta.length = headerLength;
-						result += row.meta.join("\t") + "\t" + row.kml + "\n";
-					};
-					_element(query).setValue(result);
-
-					var diff = Math.round((result.length - rawXML.length) / rawXML.length * 100);
-					_element('#stats').text('Original KML length: ' + rawXML.length + ', new spreadsheet length: ' + result.length + ' ('+diff+'%)');
-					_log.render();
-				},
-				'setXML': function(str){
-					if(typeof str === 'string' && str.length){
-						rawXML = str;
-						var parser = new DOMParser();
-						xmlDoc = _element(parser.parseFromString(str, 'text/xml'));
-						return xmlDoc;
-					}
-				},
-				'getXML': function(){
-					return xmlDoc;
-				}
-			}
-		})();
-
-		var _element = function(str){
-			function model(str){
-				var element;
-				if(typeof str === 'string'){
-					element = document.querySelector(str);
-				} else {
-					element = str;
-				}
-				
-				return {
-					'node': function(){
-						return element;
-					},
-					'checked': function(){
-						return element.checked;
-					},
-					'on': function(str, callback){
-						element.addEventListener(str, callback);
-						return this;
-					},
-					'attr': function(str){
-						var a = element.getAttribute(str);
-						if(a){
-							return a;
-						} else {
-							return null;
-						}
-					},
-					'getValue': function(type){
-						if(type === 'int'){
-							return parseInt(element.value, 10);
-						}
-						if(type === 'float'){
-							return parseFloat(element.value);
-						}
-						return element.value;
-					},
-					'setValue': function(str){
-						element.value = str;
-					},
-					'find': function(query){
-						var child = element.querySelector(query);
-						if(child){
-							return _element(child);
-						} else {
-							return null;
-						}
-					},
-					'eachFind': function(query, callback){
-						var children = element.querySelectorAll(query);
-						for (var i = 0; i < children.length; i++) {
-							var child = children[i];
-							callback(_element(child));
-						};
-					},
-					'eachChild': function(callback){
-						var children = element.children;
-						for (var i = 0; i < children.length; i++) {
-							var child = children[i];
-							callback(_element(child));
-						};
-					},
-					'hasChildren': function(){
-						return (element.children.length)? true: false;
-					},
-					'parent': function(){
-						return _element(element.parentNode);
-					},
-					'type': function(){
-						return element.tagName;
-					},
-					'isType': function(tag){
-						// Tag must be a string or an array of strings
-						if(typeof tag === 'string'){
-							return (this.type() === tag); 
-						}
-						return (tag.indexOf(this.type()) !== -1);
-
-					},
-					'html': function(str){
-						if(typeof str === 'string'){
-							element.innerHTML = str;
-						} else {
-							return element.innerHTML;
-						}
-					},
-					'text': function(str){
-						if(typeof str === 'string'){
-							element.textContent = str;
-						} else {
-							return element.textContent;
-						}
-					}
-				};
-			}
-			return new model(str);
+		var globals = {
+			'fileInput': ''
 		};
-
-		var _log = (function(){
-			var logs = [];
-			return {
-				'add': function(str, unique){
-					if(unique){
-						if(logs.indexOf(str) === -1){
-							logs.push(str);
-						}
-					} else {
-						logs.push(str);
-					}
-					console.info(str);
-				},
-				'render': function(){
-					var element = _element('#log');
-					if(logs.length){
-						element.html(logs.join('<br/>'));
-					} else {
-						this.reset();
-					}
-				},
-				'reset': function(){
-					logs = [];
-					_element('#log').html('');
-				}
-			}
-		})();
-
-		var _services = (function(){
-
-			var simpleRound = function(number, precision) {
-				var factor = Math.pow(10, precision);
-				var tempNumber = number * factor;
-				var roundedTempNumber = Math.round(tempNumber);
-				return roundedTempNumber / factor;
-			};
-
-			var logslider = function(position) {
-				// position will be between 0 and 100
-				var minp = 0;
-				var maxp = 100;
-
-				// The result should be between 100 an 10000000
-				var minv = Math.log(0.0001);
-				var maxv = Math.log(1);
-
-				// calculate adjustment factor
-				var scale = (maxv-minv) / (maxp-minp);
-
-				return Math.exp(minv + scale*(position-minp));
-			}
-
-			return {
-				'escape': function(str){
-					if(typeof str !== 'string'){
-						return '';
-					}
-					var map = {
-					    '&': '&amp;',
-					    '<': '&lt;',
-					    '>': '&gt;',
-					    '"': '&quot;',
-					    "'": '&#039;'
-					};
-					return str.replace(/[&<>"']/g, function(m) { return map[m]; });
-				},
-				'simplifyCoords': function(coords, removeSmall){
-					var decimalsOn = _element('#decimals').checked();
-					
-					var round = _element('#decimals-count').getValue('int'),
-					result = [],
-					parts = coords.split(' ');
-
-					for (var i = 0; i < parts.length; i++) {
-						var nums = parts[i].split(',');
-						var local = [];
-						if(nums[0] && nums[1]){
-							var x = parseFloat(nums[0]);
-							var y = parseFloat(nums[1]);
-							if(isNaN(x) || isNaN(y)){
-								console.error(x, y, ' is not a valid coordinate');
-								continue;
-							}
-							if(decimalsOn){
-								x = simpleRound(x, round);
-								y = simpleRound(y, round);
-							}
-							result.push({
-								'x': x,
-								'y': y
-							});
-						}
-					};
-					
-					var tolerance = _element('#simplify-count').getValue('int');
-					if(tolerance && tolerance > 0 && tolerance <= 100){
-						result = simplify(result, logslider(tolerance), true);
-					}
-
-					if(removeSmall && _element('#remove-small').checked() && result.length <= 2){
-						console.info('removed small polygon')
-						return false;
-					}					
-
-					var str = [];
-					for (var i = 0; i < result.length; i++) {
-						var r = result[i];
-						str.push(r.x + ',' + r.y);
-					};
-					var r = str.join(' ');
-					if(r.length > 50000){
-						_log.add('Size warning: one or more cells contain more than 50000 characters and won\'t work in Google Spreadsheets', true);
-					}
-					if(r.length > 32767){
-						_log.add('Size warning: one or more cells contain more than 32767 characters and won\'t work in Excel', true);
-					}
-		            return str.join(' ');
-				}
-			};
-		})();
-
-		var parseIt = function(str){
-			var headerSet = false;
-			_table.reset()
-				.setXML(str)
-				.eachFind('Placemark, Geometry', function(placeMark){
-					placeMark.eachChild(function(child){
-						if(child.isType(['LineString', 'MultiGeometry', 'Polygon'])){
-							if(!headerSet){
-								_table.addHeader(child);
-								headerSet = true;
-							}
-							if(_element('#geojson').checked()){
-								_table.addRowGEOJSON(child);
-							} else {
-								_table.addRowKML(child);
-							}
-						}
-					});
-				});
-			_table.output('#output');
-		};
-
-		var currentInput = '';
 		
-		_element('#do').on('click', function(event){
-			event.preventDefault();
-			parseIt(currentInput);
-		});
-
-		_element('#files').on('change', function(event){
+		$('#files').on('change', function(event){
 			var files = event.target.files;
 			if(files && files.length){
 				var reader = new FileReader();
 				reader.onload = (function(theFile) {
 					if(theFile){
 						// Set label
-						_element('#files').node().nextElementSibling.innerHTML = theFile.name;
+						$('#files').parent().children('label').text(theFile.name);
 						return function(e) {
-							currentInput = e.target.result;
+							globals.fileInput = e.target.result;
 						};
 					}
 				})(files[0]);
 				reader.readAsText(files[0]);
 			}
-			
 		});
 		
+		$('#do').on('click', function(){
+			if(globals.fileInput.length){
+				render();
+			}
+		});
+		
+		var simpleRound = function(number, precision) {
+			var factor = Math.pow(10, precision);
+			var tempNumber = number * factor;
+			var roundedTempNumber = Math.round(tempNumber);
+			return roundedTempNumber / factor;
+		};
+		
+		var logslider = function(position) {
+			// position will be between 0 and 100
+			var minp = 0;
+			var maxp = 100;
+
+			// The result should be between 100 an 10000000
+			var minv = Math.log(0.0001);
+			var maxv = Math.log(1);
+
+			// calculate adjustment factor
+			var scale = (maxv-minv) / (maxp-minp);
+
+			return Math.exp(minv + scale*(position-minp));
+		};
+		
+		var arrayToXY = function(input, precision){
+			var result = [];
+			input.forEach(function(part){
+				if(typeof precision === 'number'){
+					result.push({
+						'x': simpleRound(part[0], precision),
+						'y': simpleRound(part[1], precision)
+					});
+				} else {
+					// Precision is not set or not a number
+					// Don't round the coordinates
+					result.push({
+						'x': part[0],
+						'y': part[1]
+					});
+				}
+			});
+			return result;
+		};
+		
+		var xyToArray = function(input, precision){
+			var result = [];
+			input.forEach(function(part){
+				result.push([part.x, part.y]);
+				
+			});
+			return result;
+		};
+		
+		var render = function(){
+			var geoJSON;
+			var kml = new DOMParser().parseFromString(globals.fileInput, 'application/xml');
+			geoJSON = toGeoJSON.kml(kml);
+			
+			// Loop over geoJSON features
+			var decimalsCount = false;
+			if($('#decimals').prop('checked')){
+				decimalsCount = parseInt($('#decimals-count').val(), 10);
+			}
+			
+			var simplifyCount = logslider( parseInt($('#simplify-count').val(), 10) );
+			
+			// Remove empty
+			var removeSmallShapes = false;
+			if($('#remove-small').prop('checked')){
+				removeSmallShapes = true;
+			}
+			
+			var simplifyShape = function(shape, shapeType){
+				var xyShape = arrayToXY(shape, decimalsCount);
+				var simpleShape = simplify(xyShape, simplifyCount, true);
+				// Set shape in geoJSON
+				var newArray = xyToArray(simpleShape, decimalsCount);
+				return newArray;
+			};
+			
+			var simplifyGeometry = {
+				'Polygon': function(geometry){
+					// Each Polygon is an array.
+					// The first element of the array is the shape.
+					// The rest are holes. All elements need to be
+					// simplified
+					geometry.coordinates.forEach(function(line, index){
+						// Line is an array of arrays with x and 
+						// y coordinages
+						geometry.coordinates[index] = simplifyShape(line);
+					});
+				},
+				'GeometryCollection': function(collection){
+					// Loop over GeometryCollection geometries
+					collection.geometries.forEach(function(geometry){
+						var type = geometry.type;
+						simplifyGeometry[type](geometry);
+					});
+				},
+				'Point': function(){
+					// Ignore points
+				},
+				'LineString': function(geometry){
+					// Each LineString is an array.
+					geometry.coordinates = simplifyShape(geometry.coordinates, 'LineString');
+				}
+			};
+			
+			var CleanupGeometry = {
+				'Polygon': function(geometry){
+					// Each Polygon is an array.
+					// The first element of the array is the shape.
+					// The rest are holes. All elements need to be
+					// simplified
+					geometry.coordinates.forEach(function(line, index){
+						if(line.length === 1 || line.length === 2){
+							// This line can be removed
+							geometry.coordinates[index] = [];
+						}
+					});
+					// Remove empty holes
+					geometry.coordinates = geometry.coordinates.filter(function(coordinates, index){
+						if(index === 0){
+							// This is the basic shape, don't delete
+							return true;
+						}
+						// This is a hole
+						if(coordinates.length <= 2){
+							// This hole has 2 coordinates or less
+							return false;
+						}
+						return true;
+					});
+				},
+				'GeometryCollection': function(collection){
+					// Loop over GeometryCollection geometries
+					collection.geometries.forEach(function(geometry){
+						var type = geometry.type;
+						CleanupGeometry[type](geometry);
+					});
+					// Filter collection.geometries on empty polygons
+					collection.geometries = collection.geometries.filter(function(geometry){
+						if(geometry.type === 'Polygon'){
+							// Check if polygon has geometry
+							if(!geometry.coordinates || !geometry.coordinates.length || geometry.coordinates[0].length <= 2){
+								// Polygon has a shape with less than 2 points
+								return false;
+							}
+						} 
+						// Keep the rest
+						return true;
+					});
+				},
+				'Point': function(){
+					// Ignore points
+				},
+				'LineString': function(geometry){
+					// Ingore lines
+				}
+			};
+			
+			var ConvertGeometry = {
+				'Polygon': function(geometry){
+					// Do nothing
+				},
+				'GeometryCollection': function(collection){
+					// Loop over GeometryCollection geometries
+					var allPolygons = true;
+					collection.geometries.forEach(function(geometry){
+						if(geometry.type !== 'Polygon'){
+							allPolygons = false;
+						}
+					});
+					if(allPolygons){
+						// This collection can be rewriten to the shorten
+						// MultipPolygon
+						var multiPolygon = {
+							'type': 'MultiPolygon',
+							'coordinates': []
+						};
+						
+						collection.geometries.forEach(function(geometry){
+							multiPolygon.coordinates.push(geometry.coordinates);
+						});
+						
+						delete collection.geometries;
+						collection.type = 'MultiPolygon';
+						collection.coordinates = multiPolygon.coordinates;
+					}
+				},
+				'Point': function(){
+					// Do nothing
+				},
+				'LineString': function(){
+					// Do nothing
+				}
+			};
+			
+			var propertyList = [];
+			var ignoreProperties = ['stroke', 'stroke-opacity', 'fill-opacity', 'stroke-width'];
+			geoJSON.features.forEach(function(feature){
+				// Loop over features that can be simplified
+				var type = feature.geometry.type;
+				simplifyGeometry[type](feature.geometry);
+				// Update the propertyList
+				if(feature.properties && typeof feature.properties === 'object'){
+					Object.keys(feature.properties).forEach(function(property){
+						if(propertyList.indexOf(property) === -1 && ignoreProperties.indexOf(property) === -1){
+							// Add property to propertyList
+							propertyList.push(property);
+						}
+					});
+				}
+				if(removeSmallShapes){
+					CleanupGeometry[type](feature.geometry);
+				}
+				
+				ConvertGeometry[type](feature.geometry);
+			});
+			
+			createSpreadsheet(geoJSON, propertyList);
+		};
+		
+		var createSpreadsheet = function(geoJSON, propertyList){
+			// Reset errors
+			$('#log').children().hide();
+			// Clean text input
+			$('#output').val('');
+			var rows = [];
+			// Add header row
+			var headerRow = [];
+			propertyList.forEach(function(property){
+				headerRow.push(property);
+			});
+			headerRow.push('geo');
+			rows.push(headerRow.join('\t'));
+			// Loop over features
+			geoJSON.features.forEach(function(feature){
+				var row = [];
+				// Loop over propertyList to add properties
+				propertyList.forEach(function(property){
+					if(feature.properties.hasOwnProperty(property)){
+						var value = feature.properties[property];
+						if(typeof value === 'string' || typeof value === 'number'){
+							row.push(value);
+						} else {
+							row.push('');
+						}
+					} else {
+						row.push('');
+					}
+				});
+				var geometry = JSON.stringify(feature.geometry);
+				if(geometry.length > 50000){
+					$('.google').show();
+				}
+				if(geometry.length > 32767){
+					$('.excel').show();
+				}
+				row.push(geometry);
+				rows.push(row.join('\t'));
+			});
+			var resultingSpreadsheet = rows.join('\n');
+			$('#output').val(resultingSpreadsheet);
+			
+			var newSize = resultingSpreadsheet.length;
+			var oldSize = globals.fileInput.length;
+			var diff = Math.round((newSize - oldSize) / oldSize * 100);
+			$('#stats').text('Original KML length: ' + oldSize + ', new spreadsheet length: ' + newSize + ' ('+diff+'%)');
+					
+			
+			
+		};
 	</script>
 
-	<script>
-	/*
-	 (c) 2013, Vladimir Agafonkin
-	 Simplify.js, a high-performance JS polyline simplification library
-	 mourner.github.io/simplify-js
-	*/
-
-	(function () { 'use strict';
-
-	// to suit your point format, run search/replace for '.x' and '.y';
-	// for 3D version, see 3d branch (configurability would draw significant performance overhead)
-
-	// square distance between 2 points
-	function getSqDist(p1, p2) {
-
-	    var dx = p1.x - p2.x,
-	        dy = p1.y - p2.y;
-
-	    return dx * dx + dy * dy;
-	}
-
-	// square distance from a point to a segment
-	function getSqSegDist(p, p1, p2) {
-
-	    var x = p1.x,
-	        y = p1.y,
-	        dx = p2.x - x,
-	        dy = p2.y - y;
-
-	    if (dx !== 0 || dy !== 0) {
-
-	        var t = ((p.x - x) * dx + (p.y - y) * dy) / (dx * dx + dy * dy);
-
-	        if (t > 1) {
-	            x = p2.x;
-	            y = p2.y;
-
-	        } else if (t > 0) {
-	            x += dx * t;
-	            y += dy * t;
-	        }
-	    }
-
-	    dx = p.x - x;
-	    dy = p.y - y;
-
-	    return dx * dx + dy * dy;
-	}
-	// rest of the code doesn't care about point format
-
-	// basic distance-based simplification
-	function simplifyRadialDist(points, sqTolerance) {
-
-	    var prevPoint = points[0],
-	        newPoints = [prevPoint],
-	        point;
-
-	    for (var i = 1, len = points.length; i < len; i++) {
-	        point = points[i];
-
-	        if (getSqDist(point, prevPoint) > sqTolerance) {
-	            newPoints.push(point);
-	            prevPoint = point;
-	        }
-	    }
-
-	    if (prevPoint !== point) newPoints.push(point);
-
-	    return newPoints;
-	}
-
-	function simplifyDPStep(points, first, last, sqTolerance, simplified) {
-	    var maxSqDist = sqTolerance,
-	        index;
-
-	    for (var i = first + 1; i < last; i++) {
-	        var sqDist = getSqSegDist(points[i], points[first], points[last]);
-
-	        if (sqDist > maxSqDist) {
-	            index = i;
-	            maxSqDist = sqDist;
-	        }
-	    }
-
-	    if (maxSqDist > sqTolerance) {
-	        if (index - first > 1) simplifyDPStep(points, first, index, sqTolerance, simplified);
-	        simplified.push(points[index]);
-	        if (last - index > 1) simplifyDPStep(points, index, last, sqTolerance, simplified);
-	    }
-	}
-
-	// simplification using Ramer-Douglas-Peucker algorithm
-	function simplifyDouglasPeucker(points, sqTolerance) {
-	    var last = points.length - 1;
-
-	    var simplified = [points[0]];
-	    simplifyDPStep(points, 0, last, sqTolerance, simplified);
-	    simplified.push(points[last]);
-
-	    return simplified;
-	}
-
-	// both algorithms combined for awesome performance
-	function simplify(points, tolerance, highestQuality) {
-
-	    if (points.length <= 2) return points;
-
-	    var sqTolerance = tolerance !== undefined ? tolerance * tolerance : 1;
-
-	    points = highestQuality ? points : simplifyRadialDist(points, sqTolerance);
-	    points = simplifyDouglasPeucker(points, sqTolerance);
-
-	    return points;
-	}
-
-	// export as AMD module / Node module / browser or worker variable
-	if (typeof define === 'function' && define.amd) define(function() { return simplify; });
-	else if (typeof module !== 'undefined') module.exports = simplify;
-	else if (typeof self !== 'undefined') self.simplify = simplify;
-	else window.simplify = simplify;
-
-	})();
-	</script>
+	
 </body>
 </html>
